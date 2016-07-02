@@ -1,1 +1,1 @@
-# goes-node-client
+# node-goes-client

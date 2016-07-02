@@ -1,0 +1,31 @@
+{
+  "name": "goes-client",
+  "version": "0.0.1",
+  "description": "NodeJS Goes Client",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node node_modules/nodeunit/bin/nodeunit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nicdex/node-goes-client.git"
+  },
+  "keywords": [
+    "goes",
+    "node",
+    "client"
+  ],
+  "author": "Nicolas Dextraze",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nicdex/node-goes-client/issues"
+  },
+  "homepage": "https://github.com/nicdex/node-goes-client#readme",
+  "devDependencies": {
+    "nodeunit": "^0.9.1"
+  },
+  "dependencies": {
+    "uuid": "^2.0.2",
+    "zmq": "^2.15.3"
+  }
+}
