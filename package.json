@@ -22,11 +22,10 @@
   },
   "homepage": "https://github.com/nicdex/node-goes-client#readme",
   "devDependencies": {
-    "nodeunit": "^0.9.1"
+    "nodeunit": "^0.9.2"
   },
   "dependencies": {
     "glob": "^7.0.6",
-    "nodeunit": "^0.9.2",
     "uuid": "^2.0.2",
     "zmq": "^2.15.3"
   }
