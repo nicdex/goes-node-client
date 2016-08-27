@@ -1,4 +1,4 @@
-var goes = require('../src/index');
+var goes = require('../');
 var uuid = require('uuid');
 
 function MyEvent(abc) {
