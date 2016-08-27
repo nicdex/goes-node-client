@@ -47,12 +47,14 @@ GoesClient.prototype.close = function() {
 
 /**
  * Add an event to a stream
- * @param streamId    The stream UUID
- * @param event       The event object
- * @param [eventType] The event type
- * @param [cb]        Node-like callback (err)
+ * @param {string} streamId         The stream UUID
+ * @param {number} expectedVersion  The expected version
+ * @param {Object} event            The event object
+ * @param {Object} metadata         The event metadata
+ * @param {string} [eventType]      The event type
+ * @param {Function<?Error>} [cb]   Node-like callback (err)
  */
-GoesClient.prototype.addEvent = function(streamId, event, eventType, cb) {
+GoesClient.prototype.addEvent = function(streamId, expectedVersion, event, metadata, eventType, cb) {
   if (typeof eventType === 'function') {
     cb = eventType;
     eventType = null;
@@ -65,8 +67,14 @@ GoesClient.prototype.addEvent = function(streamId, event, eventType, cb) {
   if (!uuidRegex.test(streamId)) {
     return cb(new Error('streamId MUST be formatted as a UUID.'));
   }
+  if (typeof expectedVersion !== 'number') {
+    return cb(new TypeError('expectedVersion must be a number.'));
+  }
   if (typeof event !== 'object') {
     return cb(new TypeError('event MUST be an object.'));
+  }
+  if (typeof metadata !== 'object') {
+    return cb(new TypeError('metadata MUST be an object.'));
   }
   eventType = eventType || event.constructor.name;
   if (typeof eventType !== 'string') {
@@ -88,7 +96,7 @@ GoesClient.prototype.addEvent = function(streamId, event, eventType, cb) {
       return cb();
     }
     if (responseText.indexOf('Error:') === 0) {
-      return cb(new Error('Server ' + responseText));
+      return cb(ServerError.fromResponse(responseText));
     }
     cb(new Error(['Invalid response: ', responseText, '.'].join('')));
   }
@@ -96,10 +104,13 @@ GoesClient.prototype.addEvent = function(streamId, event, eventType, cb) {
   this._responseHandlers.push(handleResponse);
 
   var self = this,
-      cmd = 'AddEvent',
+      cmd = 'AddEvent_v2',
       streamUuid = new Buffer(uuid.parse(streamId)),
-      serializedEvent = [eventType, JSON.stringify(event)].join(' ');
-  this._socket.send([cmd, streamUuid, serializedEvent], 0, function(err) {
+      expectedVersionBytes = new Buffer(4),
+      serializedEvent = [eventType, JSON.stringify(event)].join(' '),
+      serializedMetadata = ['Metadata', JSON.stringify(metadata)].join(' ');
+  expectedVersionBytes.writeUInt32LE(expectedVersion, 0);
+  this._socket.send([cmd, Buffer.concat([streamUuid, expectedVersionBytes]), serializedEvent, serializedMetadata], 0, function(err) {
     if (err) {
       self._responseHandlers.pop();
       cb(err);
@@ -121,24 +132,23 @@ GoesClient.prototype._responseHandlerFor = function(cb) {
     var rawExpectedCount = msg.shift().toString(),
         expectedCount = parseInt(rawExpectedCount);
     if (isNaN(expectedCount)) {
-      var errorMessage;
       if (rawExpectedCount.indexOf('Error:') === 0) {
-        errorMessage = 'Server ' + rawExpectedCount;
-      } else {
-        errorMessage = 'Invalid response: ' + rawExpectedCount;
+        return cb(ServerError.fromResponse(rawExpectedCount));
       }
-      return cb(new Error(errorMessage));
+      return cb(new Error('Invalid response: ' + rawExpectedCount));
     }
 
-    if (expectedCount !== msg.length) {
-      return cb(new Error(['Incomplete response. Expected', expectedCount, 'events, message contains', msg.length, '.'].join(' ')));
+    if (expectedCount * 2 !== msg.length) {
+      return cb(new Error(['Incomplete response. Expected', expectedCount, 'events and metadata, message contains', msg.length/2, '.'].join(' ')));
     }
 
-    var events = msg.map(function(m) {
+    var events = [];
+    for(var index = 0; index < msg.length; ) {
+      var m = msg[index++];
       var s = m.toString(),
-          indexOfSep = s.indexOf(' '),
-          typeId = s.substr(0, indexOfSep),
-          json = s.substr(indexOfSep);
+        indexOfSep = s.indexOf(' '),
+        typeId = s.substr(0, indexOfSep),
+        json = s.substr(indexOfSep);
       var ev = JSON.parse(json);
       var type = self._types[typeId];
       if (type) {
@@ -146,12 +156,23 @@ GoesClient.prototype._responseHandlerFor = function(cb) {
       } else {
         ev.$type = typeId;
       }
-      return ev;
-    });
+      var metadata = msg[index++];
+      events.push({
+        creationTime: 0,
+        typeId: typeId,
+        event: ev,
+        metadata: metadata
+      });
+    }
     cb(null, events);
   }
 };
 
+/**
+ * Read a stream of events
+ * @param {string} streamId
+ * @param {Function<?Error,?EventData[]>} cb
+ */
 GoesClient.prototype.readStream = function(streamId, cb) {
   cb = cb || this._defaultHandler.bind(this);
 
@@ -165,7 +186,7 @@ GoesClient.prototype.readStream = function(streamId, cb) {
   this._responseHandlers.push(this._responseHandlerFor(cb).bind(this));
 
   var self = this,
-      cmd = 'ReadStream',
+      cmd = 'ReadStream_v2',
       streamUuid = new Buffer(uuid.parse(streamId));
   this._socket.send([cmd, streamUuid], 0, function(err) {
     if (err) {
@@ -175,13 +196,17 @@ GoesClient.prototype.readStream = function(streamId, cb) {
   });
 };
 
+/**
+ * Read all events
+ * @param {Function<?Error>} cb
+ */
 GoesClient.prototype.readAll = function(cb) {
   cb = cb || this._defaultHandler.bind(this);
 
   this._responseHandlers.push(this._responseHandlerFor(cb).bind(this));
 
   var self = this,
-      cmd = 'ReadAll';
+      cmd = 'ReadAll_v2';
   this._socket.send([cmd], 0, function(err) {
     if (err) {
       self._responseHandlers.pop();
@@ -190,7 +215,21 @@ GoesClient.prototype.readAll = function(cb) {
   });
 };
 
+function ServerError(message, code) {
+  Error.captureStackTrace(this, this.constructor);
+  this.name = this.constructor.name;
+  this.message = message;
+  this.code = code;
+}
+ServerError.fromResponse = function(response) {
+  var parts = response.split(': ');
+  parts.shift();
+  var code = parts.length > 1 ? parts[0] : '';
+  var message = parts.join(': ');
+  return new ServerError(message, code);
+};
 
 module.exports = function(addr) {
   return new GoesClient(addr)
 };
+module.exports.ServerError = ServerError;

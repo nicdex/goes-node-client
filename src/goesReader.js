@@ -1,5 +1,6 @@
-var fs = require('fs'),
-    path = require('path');
+var fs = require('fs');
+var path = require('path');
+var glob = require('glob');
 
 function GoesStorageReader(storagePath) {
   var stat = fs.statSync(storagePath);
@@ -9,74 +10,81 @@ function GoesStorageReader(storagePath) {
   this._storagePath = storagePath;
 }
 
-var timeRegEx = /^(\d{2})(\d{\2})(\d{\2})(\d{\3})/;
-function rebuildDate(date, time) {
-  var match = timeRegEx.exec(time);
-  if (!match) return null;
+var RELATIVE_PATH_REGEX = /^\/([0-9]{4})([0-9]{2})\/([0-9]{2})\/([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{9})_(.+)$/;
 
-  var h = parseInt(match[1]),
-      m = parseInt(match[2]),
-      s = parseInt(match[3]),
-      ms = parseInt(match[4]);
-
-  return new Date(date.getFullYear(), date.getMonth(), date.getDay(), h, m, s, ms);
+function rebuildDate(matches) {
+  var year = parseInt(matches[1]);
+  var month = parseInt(matches[2])-1;
+  var date = parseInt(matches[3]);
+  var hours = parseInt(matches[4]);
+  var minutes = parseInt(matches[5]);
+  var seconds = parseInt(matches[6]);
+  var milliseconds = parseInt(parseInt(matches[7]) / 1000000);
+  return new Date(year, month, date, hours, minutes, seconds, milliseconds);
 }
 
-function readEvent(folderPath, filename, date, cb) {
-  var parts = filename.split('_'),
-      timePart = parts[0],
-      typeId = parts[1],
-      filePath = path.join(folderPath, filename);
+GoesStorageReader.prototype._readEventSync = function(absolutePath) {
+  var relativePath = absolutePath.substr(this._storagePath.length);
+  var content = fs.readFileSync(absolutePath);
+  var parts = content.toString().split('\r\n');
+  var event = JSON.parse(parts[0]);
+  var metadata = parts[1] ? JSON.parse(parts[1]) : null;
+  var m = RELATIVE_PATH_REGEX.exec(relativePath);
+  var creationTime = rebuildDate(m);
+  var typeId = m[8];
+  return {
+    creationTime: creationTime,
+    typeId: typeId,
+    event: event,
+    metadata: metadata
+  };
+};
 
-  fs.readFile(filePath, function(err, data) {
+/**
+ * @typedef {Object} EventData
+ * @property {number} creationTime
+ * @property {string} typeId
+ * @property {Object} event
+ * @property {Object} metadata
+ */
+
+/**
+ * @typedef {Object} Filters
+ * @property {string|string[]} eventType
+ * @property {Date} date
+ */
+
+/**
+ * Get all events matching filters
+ * @param {?Filters} filters                  Filter by
+ * @param {function<?Error,?EventData[]>} cb  Callback on completion
+ */
+GoesStorageReader.prototype.getAllFor = function (filters, cb) {
+  filters = filters || {};
+  var dateFilter = '/**/*';
+  if (filters.date instanceof Date) {
+    var month = filters.date.getMonth() + 1;
+    var date = filters.date.getDate();
+    dateFilter = ['/', filters.date.getFullYear(), month < 10 ? '0' : '', month, '/', date < 10 ? '0' : '', date, '/*'].join('')
+  }
+  var pattern = this._storagePath + dateFilter;
+  if (filters.eventType) {
+    var eventTypes = Array.isArray(filters.eventType) ? filters.eventType : [filters.eventType];
+    var eventTypePatterns = eventTypes.join('|');
+    pattern += '_@(' + eventTypePatterns + ')';
+  }
+  var self = this;
+  glob(pattern, function (err, paths) {
     if (err) {
       return cb(err);
     }
-    var storedEvent = {
-      streamId: '',
-      creationTime: rebuildDate(date, timePart),
-      typeId: typeId,
-      payload: JSON.parse(data)
-    };
-    cb(null, storedEvent);
-  });
-}
-
-GoesStorageReader.prototype.getAllForDate = function(date, cb) {
-  try {
-    var month = date.getMonth() + 1,
-        formattedYearMonth = [date.getFullYear(), month<10?'0':'', month].join(''),
-        formattedDate = [date.getDate()<10?'0':'', date.getDate()].join(''),
-        folderPath = path.join(this._storagePath, formattedYearMonth, formattedDate);
-
-    function handleError(err) {
-      if (err.code === 'ENOENT')
-          return cb(null, []);
-      return cb(err);
+    try {
+      var events = paths.map(self._readEventSync, self);
+      cb(null, events);
+    } catch(e) {
+      cb(e);
     }
-
-    fs.readdir(folderPath, function (err, files) {
-      if (err) return handleError(err);
-
-      var events = [];
-
-      function done(err, ev) {
-        if (err) return cb(err);
-
-        events.push(ev);
-        if (events.length >= files.length) {
-          cb(null, events);
-        }
-      }
-
-      files.forEach(function (f) {
-        readEvent(folderPath, f, date, done);
-      });
-    })
-  }
-  catch(e) {
-    cb(e);
-  }
+  });
 };
 
 module.exports = function(storagePath) {
