@@ -113,7 +113,7 @@ function parseFrame(frame) {
   var json = str.substr(sep + 1);
   return {
     typeId: typeId,
-    obj: json ? JSON.parse(json) : null
+    obj: json ? JSON.parse(json) : {}
   };
 }
 

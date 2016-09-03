@@ -58,7 +58,7 @@ GoesStorageReader.prototype._readEventDataSync = function (absolutePath) {
 function parseEventContent(content, relativePath) {
   var parts = content.toString().split('\r\n');
   var event = JSON.parse(parts[0]);
-  var metadata = parts[1] ? JSON.parse(parts[1]) : null;
+  var metadata = parts[1] ? JSON.parse(parts[1]) : {};
   var m = RELATIVE_PATH_REGEX.exec(relativePath);
   var creationTime = rebuildDate(m);
   var typeId = m[8];
@@ -139,7 +139,11 @@ GoesStorageReader.prototype.getAllFor = function (filters, cb) {
   } else if (filters.eventType) {
     var eventTypes = Array.isArray(filters.eventType) ? filters.eventType : [filters.eventType];
     var readIndexesPromises = eventTypes.map(function (eventType) {
-      return readTextFileAsync(self._storagePath + '/indexes/types/' + eventType);
+      return readTextFileAsync(self._storagePath + '/indexes/types/' + eventType)
+        .catch(function (err) {
+          //TODO: check type of error only return empty if file not found otherwise throw
+          return '';
+        });
     });
     pathsPromise = Promise
       .all(readIndexesPromises)
