@@ -7,7 +7,7 @@ var zmq = require('zmq'),
   events = require('events');
 
 var uuidRegex = /^([0-9a-f]{8}-?)([0-9a-f]{4}-?){3}([0-9a-f]{12})$/i;
-var isoDateRegex = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{3})?(Z|\+[0-9]{2}:?[0-9]{2})$/i;
+var isoDateRegex = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{3,10})?(Z|[+-][0-9]{2}:?[0-9]{2})$/i;
 
 function GoesClient(addr) {
   events.EventEmitter.call(this);
@@ -97,7 +97,7 @@ GoesClient.prototype._handleReadResponse = function (err, frames, cb) {
       ev.$type = evtFrame.typeId;
     }
     var metadataFrame = parseFrame(frames[index++]);
-    var nextFrame = frames[index+1];
+    var nextFrame = frames[index];
     var creationTime = 0;
     if (nextFrame) {
         var isoDate = nextFrame.toString();

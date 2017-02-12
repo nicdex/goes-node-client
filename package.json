@@ -1,6 +1,6 @@
 {
   "name": "goes-client",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "NodeJS Goes Client",
   "main": "index",
   "scripts": {
