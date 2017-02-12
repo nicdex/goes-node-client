@@ -81,7 +81,7 @@ GoesClient.prototype._handleReadResponse = function (err, frames, cb) {
     return cb(new Error('Invalid response: ' + rawExpectedCount));
   }
 
-  if (expectedCount * 2 !== frames.length) {
+  if (frames.length !== expectedCount * 2 && frames.length !== expectedCount * 3) {
     return cb(new Error(['Incomplete response. Expected', expectedCount, 'events and metadata, message contains', frames.length / 2, '.'].join(' ')));
   }
 
