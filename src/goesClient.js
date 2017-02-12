@@ -7,6 +7,7 @@ var zmq = require('zmq'),
   events = require('events');
 
 var uuidRegex = /^([0-9a-f]{8}-?)([0-9a-f]{4}-?){3}([0-9a-f]{12})$/i;
+var isoDateRegex = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{3})?(Z|\+[0-9]{2}:?[0-9]{2})$/i;
 
 function GoesClient(addr) {
   events.EventEmitter.call(this);
@@ -96,8 +97,17 @@ GoesClient.prototype._handleReadResponse = function (err, frames, cb) {
       ev.$type = evtFrame.typeId;
     }
     var metadataFrame = parseFrame(frames[index++]);
+    var nextFrame = frames[index+1];
+    var creationTime = 0;
+    if (nextFrame) {
+        var isoDate = nextFrame.toString();
+        if (isoDateRegex.test(isoDate)) {
+          index++;
+          creationTime = new Date(isoDate).getTime()
+        }
+    }
     events.push({
-      creationTime: 0,
+      creationTime: creationTime,
       typeId: evtFrame.typeId,
       event: ev,
       metadata: metadataFrame.obj
@@ -211,7 +221,7 @@ GoesClient.prototype.readAll = function (cb) {
   this._responseHandlers.push({handler: this._handleReadResponse.bind(this), cb: cb});
 
   var self = this,
-    cmd = 'ReadAll_v2';
+    cmd = 'ReadAll_v3';
   this._socket.send([cmd], 0, function (err) {
     if (err) {
       self._responseHandlers.pop();
